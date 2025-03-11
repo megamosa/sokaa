@@ -1,0 +1,227 @@
+<?php
+/**
+ * @var $block \Magento\Framework\View\Element\Template
+ */
+$helper = $this->helper('MagoArab\CdnIntegration\Helper\Data');
+$cdnBaseUrl = $helper->getCdnBaseUrl();
+?>
+
+<?php if ($helper->isEnabled() && !empty($cdnBaseUrl)): ?>
+<script>
+// Product image CDN handler - applies to all product pages
+(function() {
+    const cdnBaseUrl = '<?= $block->escapeJs($cdnBaseUrl) ?>';
+    
+    // Function to replace all product images with CDN URLs
+    function replaceCdnImages() {
+        console.log('CDN Integration: Checking for product images to replace');
+        
+        // Replace main product image
+        replaceProductMainImage();
+        
+        // Replace gallery images
+        replaceGalleryImages();
+        
+        // Replace other product images
+        replaceOtherProductImages();
+    }
+    
+    // Replace main product image
+    function replaceProductMainImage() {
+        const mainImage = document.querySelector('.product-image-photo');
+        if (mainImage) {
+            replaceImageSrc(mainImage);
+        }
+    }
+    
+    // Replace gallery images
+    function replaceGalleryImages() {
+        // Handle Fotorama gallery
+        const galleryImages = document.querySelectorAll('.fotorama__img');
+        galleryImages.forEach(function(img) {
+            replaceImageSrc(img);
+        });
+        
+        // Handle gallery placeholder data
+        const galleryPlaceholder = document.querySelector('[data-gallery-role="gallery-placeholder"]');
+        if (galleryPlaceholder && galleryPlaceholder.hasAttribute('data-mage-init')) {
+            try {
+                const galleryConfig = JSON.parse(galleryPlaceholder.getAttribute('data-mage-init'));
+                
+                if (galleryConfig && galleryConfig['mage/gallery/gallery'] && galleryConfig['mage/gallery/gallery'].data) {
+                    let modified = false;
+                    const data = galleryConfig['mage/gallery/gallery'].data;
+                    
+                    // Process each image in the gallery data
+                    data.forEach(function(item) {
+                        // Replace img URL
+                        if (item.img && item.img.indexOf('/media/') !== -1) {
+                            const cdnPath = item.img.substring(item.img.indexOf('/media/') + 7);
+                            item.img = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+                            modified = true;
+                        }
+                        
+                        // Replace thumb URL
+                        if (item.thumb && item.thumb.indexOf('/media/') !== -1) {
+                            const cdnPath = item.thumb.substring(item.thumb.indexOf('/media/') + 7);
+                            item.thumb = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+                            modified = true;
+                        }
+                        
+                        // Replace full URL
+                        if (item.full && item.full.indexOf('/media/') !== -1) {
+                            const cdnPath = item.full.substring(item.full.indexOf('/media/') + 7);
+                            item.full = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+                            modified = true;
+                        }
+                    });
+                    
+                    // Update the gallery config if modified
+                    if (modified) {
+                        galleryConfig['mage/gallery/gallery'].data = data;
+                        galleryPlaceholder.setAttribute('data-mage-init', JSON.stringify(galleryConfig));
+                        console.log('CDN Integration: Updated gallery data');
+                    }
+                }
+            } catch (e) {
+                console.error('CDN Integration: Error updating gallery data', e);
+            }
+        }
+    }
+    
+    // Replace other product images
+    function replaceOtherProductImages() {
+        // Handle any other product images (like swatches)
+        const productBlock = document.querySelector('.product-info-main');
+        if (productBlock) {
+            const productImages = productBlock.querySelectorAll('img');
+            productImages.forEach(function(img) {
+                replaceImageSrc(img);
+            });
+        }
+        
+        // Handle additional images in product info
+        const additionalImages = document.querySelectorAll('.product.media img');
+        additionalImages.forEach(function(img) {
+            replaceImageSrc(img);
+        });
+    }
+    
+    // Helper function to replace image src with CDN URL
+    function replaceImageSrc(img) {
+        // Check src attribute
+        const src = img.getAttribute('src');
+        if (src && src.indexOf('/media/') !== -1 && src.indexOf(cdnBaseUrl) === -1) {
+            const cdnPath = src.substring(src.indexOf('/media/') + 7);
+            const cdnUrl = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+            
+            img.setAttribute('src', cdnUrl);
+            console.log('CDN Integration: Replaced image source', src, '->', cdnUrl);
+        }
+        
+        // Check data-src attribute
+        const dataSrc = img.getAttribute('data-src');
+        if (dataSrc && dataSrc.indexOf('/media/') !== -1 && dataSrc.indexOf(cdnBaseUrl) === -1) {
+            const cdnPath = dataSrc.substring(dataSrc.indexOf('/media/') + 7);
+            const cdnUrl = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+            
+            img.setAttribute('data-src', cdnUrl);
+        }
+        
+        // Check srcset attribute
+        const srcset = img.getAttribute('srcset');
+        if (srcset && srcset.indexOf('/media/') !== -1) {
+            const entries = srcset.split(',');
+            const newEntries = entries.map(function(entry) {
+                const parts = entry.trim().split(' ');
+                const url = parts[0];
+                const descriptor = parts.slice(1).join(' ');
+                
+                if (url.indexOf('/media/') !== -1 && url.indexOf(cdnBaseUrl) === -1) {
+                    const cdnPath = url.substring(url.indexOf('/media/') + 7);
+                    const cdnUrl = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+                    
+                    return cdnUrl + ' ' + descriptor;
+                }
+                
+                return entry;
+            });
+            
+            img.setAttribute('srcset', newEntries.join(', '));
+        }
+    }
+    
+    // Setup mutation observer to catch dynamically added images
+    function setupMutationObserver() {
+        // Create an observer instance
+        const observer = new MutationObserver(function(mutations) {
+            let shouldReplace = false;
+            
+            mutations.forEach(function(mutation) {
+                // Check if new nodes were added
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    for (let i = 0; i < mutation.addedNodes.length; i++) {
+                        const node = mutation.addedNodes[i];
+                        
+                        // If an element node was added
+                        if (node.nodeType === 1) {
+                            // If the node is an image
+                            if (node.tagName === 'IMG') {
+                                shouldReplace = true;
+                            }
+                            // If the node contains images
+                            else if (node.querySelectorAll) {
+                                const images = node.querySelectorAll('img');
+                                if (images.length > 0) {
+                                    shouldReplace = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Check if attributes were modified
+                else if (mutation.type === 'attributes' && 
+                         mutation.attributeName === 'src' && 
+                         mutation.target.tagName === 'IMG') {
+                    shouldReplace = true;
+                }
+            });
+            
+            // If we found images, run the replacement
+            if (shouldReplace) {
+                setTimeout(replaceCdnImages, 10);
+            }
+        });
+        
+        // Observe the entire document for changes
+        observer.observe(document.body, { 
+            childList: true, 
+            subtree: true, 
+            attributes: true, 
+            attributeFilter: ['src', 'srcset', 'data-src']
+        });
+    }
+    
+    // Initial run
+    document.addEventListener('DOMContentLoaded', function() {
+        replaceCdnImages();
+        setupMutationObserver();
+        
+        // Add event listener for gallery:loaded event
+        document.addEventListener('gallery:loaded', replaceCdnImages);
+        
+        // Also run on fotorama:load event
+        document.addEventListener('fotorama:load', replaceCdnImages);
+        
+        // For Magento's swatches
+        document.addEventListener('swatch:selected', replaceCdnImages);
+    });
+    
+    // Run now in case DOM is already loaded
+    replaceCdnImages();
+    
+    // Also run after a short delay to catch late initializations
+    setTimeout(replaceCdnImages, 1000);
+})();
+</script>
+<?php endif; ?>

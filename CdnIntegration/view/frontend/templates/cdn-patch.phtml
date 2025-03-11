@@ -1,0 +1,167 @@
+<?php
+/**
+ * @var $block \Magento\Framework\View\Element\Template
+ */
+$helper = $this->helper('MagoArab\CdnIntegration\Helper\Data');
+$cdnBaseUrl = $helper->getCdnBaseUrl();
+?>
+
+<?php if ($helper->isEnabled() && !empty($cdnBaseUrl)): ?>
+<script>
+(function() {
+    var cdnBaseUrl = '<?= $block->escapeJs($cdnBaseUrl) ?>';
+    
+    // Function to convert URL to CDN URL
+    function convertToCdnUrl(url) {
+        if (typeof url !== 'string') {
+            return url;
+        }
+        
+        // Process relative URLs
+        if (url && (url.indexOf('/static/') === 0 || url.indexOf('/media/') === 0)) {
+            var cdnPath = '';
+            if (url.indexOf('/static/') === 0) {
+                cdnPath = url.substring(8); // Remove '/static/'
+            } else if (url.indexOf('/media/') === 0) {
+                cdnPath = url.substring(7); // Remove '/media/'
+            }
+            
+            if (cdnPath) {
+                return cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+            }
+        }
+        
+        return url;
+    }
+    
+    // Process RequireJS configuration
+    function patchRequireJs() {
+        if (!window.require || !window.require.s || !window.require.s.contexts) {
+            return;
+        }
+        
+        var context = window.require.s.contexts._;
+        if (!context) {
+            return;
+        }
+        
+        // Patch require.load method
+        var originalLoad = window.require.load;
+        if (originalLoad && typeof originalLoad === 'function') {
+            window.require.load = function(context, moduleName, url) {
+                url = convertToCdnUrl(url);
+                return originalLoad.call(window.require, context, moduleName, url);
+            };
+        }
+        
+        // Patch the context configuration
+        if (context.config && context.config.paths) {
+            Object.keys(context.config.paths).forEach(function(key) {
+                var path = context.config.paths[key];
+                if (typeof path === 'string') {
+                    context.config.paths[key] = convertToCdnUrl(path);
+                }
+            });
+        }
+        
+        // Process any modules that might be in the registry
+        if (context.registry) {
+            Object.keys(context.registry).forEach(function(key) {
+                var module = context.registry[key];
+                if (module && module.url) {
+                    module.url = convertToCdnUrl(module.url);
+                }
+            });
+        }
+        
+        // Process any URLs in urlFetched
+        if (context.urlFetched) {
+            var newUrlFetched = {};
+            Object.keys(context.urlFetched).forEach(function(url) {
+                var newUrl = convertToCdnUrl(url);
+                newUrlFetched[newUrl] = context.urlFetched[url];
+            });
+            context.urlFetched = newUrlFetched;
+        }
+    }
+    
+    // Apply patches immediately
+    patchRequireJs();
+    
+    // Also patch after any script loads (to catch dynamic loads)
+    var originalCreateElement = document.createElement;
+    document.createElement = function(tagName) {
+        var element = originalCreateElement.call(document, tagName);
+        
+        if (tagName.toLowerCase() === 'script') {
+            var originalSetAttribute = element.setAttribute;
+            element.setAttribute = function(name, value) {
+                if (name === 'src' && typeof value === 'string') {
+                    // Convert the src to use CDN
+                    value = convertToCdnUrl(value);
+                }
+                return originalSetAttribute.call(this, name, value);
+            };
+            
+            // Patch the onload to potentially fix RequireJS after loading new modules
+            var originalOnload = element.onload;
+            element.onload = function() {
+                // Run the original onload
+                if (originalOnload) {
+                    originalOnload.apply(this, arguments);
+                }
+                
+                // Apply our patches again
+                setTimeout(patchRequireJs, 0);
+            };
+        }
+        
+        return element;
+    };
+    
+    // Patch XMLHttpRequest to catch dynamic loading
+    var originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+        if (method === 'GET' && typeof url === 'string') {
+            arguments[1] = convertToCdnUrl(url);
+        }
+        return originalOpen.apply(this, arguments);
+    };
+    
+    // Patch require.config to handle future configuration
+    if (window.require && window.require.config) {
+        var originalConfig = window.require.config;
+        window.require.config = function(config) {
+            // Process paths
+            if (config && config.paths) {
+                Object.keys(config.paths).forEach(function(key) {
+                    config.paths[key] = convertToCdnUrl(config.paths[key]);
+                });
+            }
+            return originalConfig.call(window.require, config);
+        };
+    }
+    
+    // Run RequireJS patch again when the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        patchRequireJs();
+        // Also try again after a short delay to catch any late initializations
+        setTimeout(patchRequireJs, 500);
+    });
+    
+    // Check for immediate application of URLs in script tags
+    function processExistingScripts() {
+        var scripts = document.querySelectorAll('script[src]');
+        scripts.forEach(function(script) {
+            var src = script.getAttribute('src');
+            var newSrc = convertToCdnUrl(src);
+            if (src !== newSrc) {
+                script.setAttribute('src', newSrc);
+            }
+        });
+    }
+    
+    processExistingScripts();
+})();
+</script>
+<?php endif; ?>

@@ -1,0 +1,72 @@
+<?php
+/**
+ * @var $block \Magento\Framework\View\Element\Template
+ */
+$helper = $this->helper('MagoArab\CdnIntegration\Helper\Data');
+$cdnBaseUrl = $helper->getCdnBaseUrl();
+?>
+
+<?php if ($helper->isEnabled() && !empty($cdnBaseUrl)): ?>
+<script>
+// Direct fix for URLs in JavaScript arrays
+(function() {
+    var cdnBaseUrl = '<?= $block->escapeJs($cdnBaseUrl) ?>';
+    
+    // This function runs through all scripts on the page looking for URL arrays
+    function scanForUrlArrays() {
+        // Look for all scripts in the page
+        var scripts = document.getElementsByTagName('script');
+        
+        for (var i = 0; i < scripts.length; i++) {
+            var script = scripts[i];
+            if (!script.textContent) continue;
+            
+            // Look for content that matches the pattern in paste.txt
+            var content = script.textContent;
+            var regex = /"(\/static\/[^"]+\.(?:js|css|png|jpg|jpeg|gif)(?:\?[^"]*)?)"/g;
+            var matches;
+            var modified = false;
+            
+            // Find all matching URLs and replace them
+            while ((matches = regex.exec(content)) !== null) {
+                var url = matches[1];
+                var cdnPath = '';
+                
+                if (url.indexOf('/static/') === 0) {
+                    cdnPath = url.substring(8); // Remove '/static/'
+                } else if (url.indexOf('/media/') === 0) {
+                    cdnPath = url.substring(7); // Remove '/media/'
+                }
+                
+                if (cdnPath) {
+                    var cdnUrl = cdnBaseUrl.replace(/\/$/, '') + '/' + cdnPath.replace(/^\//, '');
+                    
+                    // Replace the URL in the script content
+                    content = content.replace('"' + url + '"', '"' + cdnUrl + '"');
+                    modified = true;
+                }
+            }
+            
+            // If we modified anything, create a new script with the updated content
+            if (modified) {
+                var newScript = document.createElement('script');
+                newScript.type = script.type || 'text/javascript';
+                newScript.textContent = content;
+                
+                // Replace the old script with the new one
+                script.parentNode.replaceChild(newScript, script);
+            }
+        }
+    }
+    
+    // Run the scan immediately
+    scanForUrlArrays();
+    
+    // Also run after DOMContentLoaded to catch scripts added later
+    document.addEventListener('DOMContentLoaded', scanForUrlArrays);
+    
+    // Run one more time after a delay to catch any late additions
+    setTimeout(scanForUrlArrays, 1000);
+})();
+</script>
+<?php endif; ?>
